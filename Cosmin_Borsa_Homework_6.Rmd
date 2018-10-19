@@ -1,0 +1,529 @@
+---
+title: "Random Number Generation in R Markdown"
+# subtitle: "Homework 6 for Statistical Computing"
+author: 
+  Cosmin Borsa^[<cosmin.borsa@uconn.edu>; M.S. in Applied Financial Mathematics,
+    Department of Mathematics, University of Connecticut.]
+date: "`r format(Sys.Date(), '%m/%d/%Y')`"
+fontsize: 11pt
+header-includes: 
+  \usepackage{float}
+  \usepackage{algorithm}
+  \usepackage{algpseudocode}
+  \floatplacement{figure}{H}
+output: 
+  pdf_document:
+    number_sections: true
+    
+abstract: This document is a homework assignment for the course Statistical Computing at the University of Connecticut. 
+keywords: Random Number Generation
+---
+
+```{r setup, echo = FALSE, message = FALSE, warning = FALSE}
+## some utility functions, see the source code for details
+source("utils_template.R")
+
+## specify the packages needed
+pkgs <- c("DT", "leaflet", "splines2", "webshot", "graphics", "elliptic", "ggplot2", "reshape2")
+need.packages(pkgs)
+
+```
+
+# Rejection Sampling {#sec:rejectionsampling}
+
+We are given two probability density functions $f$ and $g$ on the interval $(0, \infty)$ such that
+
+\begin{equation} 
+f(x) \propto \sqrt{(4 + x)} x^{\theta - 1} e^{-x}  
+\label{eq:f} 
+\end{equation}
+
+\begin{equation}  
+g(x) \propto (2 x^{\theta - 1} + x^{\theta - \frac{1}{2}}) e^{-x} 
+\label{eq:g} 
+\end{equation}
+
+## Mixture of Gamma Distributions
+
+At first, we are going to find the value of the normalizing constant $C$ for the density function $g$. Since $g$ is a density function, we can integrate it over its domain $(0, \infty)$ and we obtain 
+
+\begin{align} 
+  \int_{0}^{\infty} g(x) dx = \int_{0}^{\infty} C(2 x^{\theta - 1} + x^{\theta - \frac{1}{2}}) e^{-x} dx = 1 
+\end{align}
+
+We can spilt the integral into two and we have
+
+\begin{align} 
+  C \int_{0}^{\infty}  2 x^{\theta - 1} e^{-x} dx + C \int_{0}^{\infty} x^{\theta - \frac{1}{2}} e^{-x} dx = 1 
+\end{align}
+
+Since a continuous random variable $X$ which follows a Gamma distribution with shape parameter $\theta > 0$ and rate parameter $1$, has the probability density function given by
+
+$$ 
+f_X(\theta) = 
+\begin{cases} 
+\frac{x^{\theta - 1} e^{-x}}{\Gamma(\theta)}, \, x > 0 \\
+0, \, x \leq 0\\
+\end{cases}
+$$
+
+We will now show that the function $g(x)$ is a mixture of Gamma distributions.
+
+\begin{equation}
+2C \Gamma(\theta) \int_{0}^{\infty} \frac{x^{\theta - 1} e^{-x}}{\Gamma(\theta)} dx + C \Gamma(\theta + \dfrac{1}{2}) \int_{0}^{\infty} \frac{x^{(\theta + \frac{1}{2}) - 1} e^{-x}}{\Gamma(\theta + \frac{1}{2})} dx = 1 
+\label{eq:split}
+\end{equation}
+
+In equation (\ref{eq:split}) it can be seen that we are integrating the density functions of two Gamma distributed random variables over their domain of definition. Thus, the integrals should be equal to $1$, and we obtain value of $C$.
+
+\begin{align} 
+  2C \Gamma(\theta) + C \Gamma(\theta + \frac{1}{2}) = 1 \quad\Rightarrow\quad
+  C = \frac{1}{2 \Gamma(\theta) + \Gamma(\theta + \frac{1}{2})}
+\end{align}
+
+Using the value of the  normalizing constant $C$ we can obtain the probability density function $g$.
+
+\begin{align} 
+  g(x) =  \frac{1}{2 \Gamma(\theta) + \Gamma(\theta + \frac{1}{2})} (2 x^{\theta - 1} + x^{\theta - \frac{1}{2}}) e^{-x} 
+\end{align}
+
+We will now show that $g$ is a mixture of two Gamma distributions.
+
+\begin{align} 
+  g(x) =  \frac{2 \Gamma(\theta)}{2 \Gamma(\theta) + \Gamma(\theta + \frac{1}{2})} \cdot \frac{x^{\theta - 1} e^{-x}}{\Gamma(\theta)}  +  \frac{\Gamma(\theta + \frac{1}{2})}{2 \Gamma(\theta) + \Gamma(\theta + \frac{1}{2})} \cdot \frac{x^{(\theta + \frac{1}{2}) - 1} e^{-x}}{\Gamma(\theta + \frac{1}{2})} 
+\end{align}
+
+The two Gamma distributions that are included in $g$ are $\Gamma(\text{rate} = 1, \text{shape} = \theta)$ with the weight $\alpha_{1}$ and $\Gamma(\text{rate} = 1, \text{shape} = \theta + \frac{1}{2})$ with the weight $\alpha_{2}$. 
+
+$$
+  \alpha_{1} = \frac{2 \Gamma(\theta)}{2 \Gamma(\theta) + \Gamma(\theta + \frac{1}{2})} \qquad \alpha_{2} = \frac{\Gamma(\theta + \frac{1}{2})}{2 \Gamma(\theta) + \Gamma(\theta + \frac{1}{2})}
+$$ 
+
+Since $\alpha_{1} + \alpha_{2}  = 1$, we have shown that $g$ is a mixture of two Gamma distributions.
+
+## Sample from $g$
+
+We will now design a procedure to sample from $g$. To do that we need to take samples from the Gamma distributions $\Gamma(\text{rate} = 1, \text{shape} = \theta)$ and $\Gamma(\text{rate} = 1, \text{shape} = \theta + \frac{1}{2})$. Next, we will briefly explain the procedure using pseudo-code.
+
+\begin{algorithm}
+\begin{algorithmic}[1]
+\Procedure{My Procedure}{}
+\State Set $\alpha_0$
+\State Construct a binomial distributed vector \textit{indicator}
+\State \textbf{loop} throughout \textit{sample size}
+\If{$\textit{indicator} = 1$}
+\State Sample $X$ from Gamma$(\theta, 1)$
+\Else
+\State Sample $X$ from Gamma$(\theta+\frac{1}{2}, 1)$
+\EndIf
+\State \textbf{end loop}
+\State\Return Vector $X$
+\EndProcedure
+\end{algorithmic}
+\caption{Sample from $g$}
+\end{algorithm}
+
+\newpage
+
+We will now implement the pseudo-code in the R function `sample.g`.
+
+```{r sampling g, echo = TRUE, message = FALSE, warning = FALSE}
+sample.g <- function(sample.size, theta)  {
+  
+  alpha0 = 2 * gamma(theta) / (2 * gamma(theta) + gamma(theta + (1/2)))
+  indicator = rbinom(sample.size, 1, alpha0)
+  sample.g = numeric(sample.size)
+  
+  for (i in 1:sample.size) {
+    if (indicator[i] == 1) {
+      sample.g[i] <- rgamma(1, shape = theta, rate = 1)
+    } 
+    else {
+      sample.g[i] <- rgamma(1, shape = theta + (1/2), rate = 1)
+    }
+  }
+  
+  return(sample.g)
+}
+```
+
+Next, we are going to draw a sample of size $10,000$ with $\theta = 2$. After that we will plot the obtained kernel density estimation of $g$ from the sample and the true density of $g$. It is worth mentioning that the variable `alpha` does not give the probability of acceptance. It returns the probability with which an observation belongs to one of the distributions in the mixture.
+
+```{r kernel_fig, echo = TRUE, fig.cap = "\\label{fig:kernel_fig} Kernel Density Estimation and the True Density of $g$", fig.width = 8, fig.pos = 'htb'}
+n <- 10000
+theta.given <- 2
+sampling.g <- sample.g(n, theta.given)
+alpha = 2 * gamma(theta.given) / (2 * gamma(theta.given) + 
+        gamma(theta.given + (1/2)))
+
+plot(density(sampling.g), col = "red")
+curve(alpha*dgamma(x,shape = 2, rate = 1) + (1-alpha) * 
+      dgamma(x, shape = 5/2, rate = 1), xlim = c(0, max(sampling.g)), 
+      add = TRUE, col = "blue")
+legend("topright", legend = c("Kernel Density", "True Density"), 
+      col = c("red","blue"), lty = c(1,1))
+```
+
+We can see from Figure (\ref{fig:kernel_fig}) that the kernel density is a good approximation of the true density when we sample $10,000$ observations from $g$ with $\theta = 2$. 
+
+## Sample from $f$ with Rejection Sampling
+
+We now want to sample from the more complicated probability density function $f$. To do that we will use Rejection Sampling with instrumental density $g$. However, before we do that, we will show that $f$ is proportional to a function $q$ which in turn is less than or equal to $g$. So let $q(x) = \sqrt{(4 + x)} x^{\theta - 1} e^{-x}$ such that
+
+$$
+q(x) \leq (\sqrt{4} + \sqrt{x}) x^{\theta - 1} e^{-x} = (2 x^{\theta - 1} + x^{\theta - \frac{1}{2}}) e^{-x} 
+$$
+Thus, 
+$$ q(x) \leq \frac{1}{C} \cdot g(x) \quad\text{with}\quad  C = \frac{1}{2 \Gamma(\theta) + \Gamma(\theta + \frac{1}{2})} $$
+So we are going to define $\alpha := \frac{1}{C} = 2 \Gamma(\theta) + \Gamma(\theta + \frac{1}{2})$ such that 
+$$\alpha q(x) = (2 x^{\theta - 1} + x^{\theta - \frac{1}{2}}) e^{-x}$$
+
+Now, we will design a procedure to sample from $f$ using Rejection Sampling with instrumental density $g$. We will briefly explain the procedure using pseudo-code.
+
+\begin{algorithm}
+\begin{algorithmic}[1]
+\Procedure{My Procedure}{}
+\State Initialize \textit{count} and \textit{counts rejections}
+\State \textbf{while} \textit{count} < \textit{sample size} \textbf{do}
+\State Call Procedure \textit{Sample from $g$} 
+\State Sample \textit{observation} from U$(0, 1)$
+\State Sample $X$ from $g(x)$
+\State Compute \textit{ratio} $ = \frac{q(x)}{g(x)}$
+\If{\textit{observation} $\leq$ \textit{ratio}}
+\State Accept sample $X$
+\Else
+\State Reject sample $X$
+\EndIf
+\State \textbf{end while}
+\State\Return Vector $X$
+\EndProcedure
+\end{algorithmic}
+\caption{Sample from $f$}
+\end{algorithm}
+
+We will now implement the pseudo-code in the R function `sample.f`.
+
+```{r sample f, echo = TRUE, message = FALSE, warning = FALSE}
+sample.f <- function(sample.size, theta) {
+  count <- 0
+  count.rejections <- 0
+  sample.f <- numeric(0)
+  while(count < sample.size) {
+    sampling.g <- sample.g(1, theta)
+    uniform  <- runif(1,0,1)
+    q.x      <- sqrt(4 + sampling.g)*((sampling.g)^(theta-1))*exp(-1*sampling.g)
+    alpha.g.x <- 2*((sampling.g)^(theta-1))*exp(-1*sampling.g) + 
+                    ((sampling.g)^(theta-(1/2)))*exp(-1*sampling.g)
+    ratio    <- (q.x)/(alpha.g.x)
+    if (uniform <= ratio) { 
+      sample.f <- append(sample.f, sampling.g)
+      count <- count + 1
+    }
+    else {
+      count.rejections <- count.rejections + 1
+    }
+  }
+  acceptance.rate = count/(count + count.rejections)
+  return(sample.f)
+}
+```
+
+Next we are going to draw a sample of size $10,000$ with $\theta = 2$. Then, we will plot the estimated density of $f$.
+
+```{r sampling f, echo = TRUE, fig.cap = "\\label{fig:sample.f} Estimated density of $f$", fig.width = 8, fig.pos = 'htb'}
+n <- 10000
+theta.given <- 2
+sampling.f <- sample.f(n, theta.given)
+
+plot(density(sampling.f), col = "blue")
+legend("topright", legend = c("Estimated Density of f(x)"), col = c("blue"),
+       lty = c(1))
+```
+
+Even though it is difficult to graph the actual density of $f$ without evaluating the normalizing constant, it seems that a sample size of $10,000$ observations gives us a fairly good estimation of density curve. Comparing the plot of $f$ with that of $g$ we can observe that the curves look similar. This implies that we get a relatively high acceptance probability. After running the code a few times with the parameter $\theta = 2$ and sample size $10,000$ we obtain an acceptance rate of approximately $73\%$.
+
+# Mixture Proposal {#sec:mixtureproposal}
+
+We are given a probability density function f on the interval $(0, 1)$ such that
+
+\begin{equation}
+f(x) \propto \frac{x^{\theta - 1}}{1 + x^{2}} + \sqrt{2 + x^{2}} (1 - x)^{\beta - 1}
+\label{eq:beta_f}
+\end{equation}
+
+## Mixture of Beta Distributions
+
+We now want to sample from the probability density function $f$ and use a mixture of Beta distributions as the instrumental density. However, before we do that, we will construct a function $q$ such that for $x \in (0, 1)$
+
+$$q(x) = \frac{x^{\theta - 1}}{1 + x^{2}} + \sqrt{2 + x^{2}} (1 - x)^{\beta - 1}$$
+
+Since $1 + x^{2} \geq 1$ and $\sqrt{2 + x^{2}} \leq \sqrt{2} + x$ we will show that $q$ is less than a mixture of Beta distributions.
+
+$$
+q(x) \leq x^{\theta - 1} + (\sqrt{2} + x) (1 - x)^{\beta - 1} = x^{\theta - 1} + \sqrt{2} (1 - x)^{\beta - 1} +  \sqrt{x^2} (1 - x)^{\beta - 1}
+$$
+
+So let $g$ be a function such that
+$$ g(x) \propto x^{\theta - 1} + \sqrt{2} (1 - x)^{\beta - 1} +  x (1 - x)^{\beta - 1} $$
+We will now find the value of the normalizing constant $C$ to make $g$ a density function.
+$$
+g(x) = C \Big( x^{\theta - 1} + \sqrt{2} (1 - x)^{\beta - 1} +  x (1 - x)^{\beta - 1} \Big)
+$$
+A continuous random variable $X$ which follows a Beta distribution with shape parameters $\alpha > 0$ and $\beta > 0$ has the following probability density function on the interval $(0, 1)$
+
+$$f_X (x) = \frac{\Gamma(\alpha +\beta)}{\Gamma(\alpha)\Gamma(\beta)} x^{\alpha -1} (1 - x)^{\beta - 1} = \frac{1}{B(\alpha, \beta)} x^{\alpha -1} (1 - x)^{\beta - 1}$$
+
+We will now show that the function $g(x)$ is a mixture of Beta distributions.
+
+$$
+g(x) = C \Bigg( B(\theta, 1) \frac{x^{\theta - 1}}{B(\theta, 1)}  + \sqrt{2} B(1, \beta) \frac{(1 - x)^{\beta - 1}}{B(1, \beta)}  + B(2, \beta) \frac{x (1 - x)^{\beta - 1}}{B (2, \beta)} \Bigg)
+$$
+Therefore, $g$ is a mixture of three Beta distributions: $B(\theta, 1)$, $B(1, \beta)$, and $B(2, \beta)$. To obtain $C$ we will integrate the density function $g(x)$ over $(0, 1)$
+
+$$\int_{0}^{1} g(x) \, dx = C \int_{0}^{1} B(\theta, 1) \frac{x^{\theta - 1}}{B(\theta, 1)}  + \sqrt{2} B(1, \beta) \frac{(1 - x)^{\beta - 1}}{B(1, \beta)}  + B(2, \beta) \frac{x (1 - x)^{\beta - 1}}{B (2, \beta)} \, dx = 1$$
+
+Thus,
+\begin{equation}
+C B(\theta, 1) \int_{0}^{1}  \frac{x^{\theta - 1}}{B(\theta, 1)} dx + C \sqrt{2}   B(1, \beta) \int_{0}^{1} \frac{(1 - x)^{\beta - 1}}{B(1, \beta)} dx + C B(2, \beta) \int_{0}^{1} \frac{x (1 - x)^{\beta - 1}}{B (2, \beta)} \, dx = 1
+\label{eq:integral} 
+\end{equation}
+
+As it can be seen from equation (\ref{eq:integral}) we are integrating the density functions of Beta distributed random variables over their domain of definition. Thus, the integrals should be equal to 1, and we obtain $C$ 
+$$C \Big(B(\theta,1) + \sqrt{2} B(1, \beta) + B(2, \beta) \Big) = 1 \,\Rightarrow\, C = \frac{1}{B(\theta,1) + \sqrt{2} B(1, \beta) + B(2, \beta)}$$
+
+Therefore, $g$ is a mixture of three Beta distributions: $B(\theta, 1)$ with the weight $p_1$, $B(1, \beta)$ with the weight $p_2$, and $B(2, \beta)$ with the weight $p_3$.
+
+$$
+g(x) =  p_1 \frac{x^{\theta - 1}}{B(\theta, 1)}  + p_2 \frac{(1 - x)^{\beta - 1}}{B(1, \beta)} + p_3 \frac{x (1 - x)^{\beta - 1}}{B (2, \beta)} 
+$$
+
+The weights are given as follows
+
+$$
+p_1 = \frac{B(\theta, 1)}{B(\theta,1) + \sqrt{2} B(1, \beta) + B(2, \beta)}
+$$
+
+$$
+p_2 = \frac{\sqrt{2} B(1, \beta) }{B(\theta,1) + \sqrt{2} B(1, \beta) + B(2, \beta)}
+$$
+
+$$ 
+p_3 = \frac{B(2, \beta)}{B(\theta,1) + \sqrt{2} B(1, \beta) + B(2, \beta)}
+$$
+
+
+
+Next, we are going to define $\alpha := \frac{1}{C}$ such that 
+$$q(x) \leq \frac{1}{C} \cdot C \Big( x^{\theta - 1} + \sqrt{2} (1 - x)^{\beta - 1} +  \sqrt{x^2} (1 - x)^{\beta - 1} \Big) = \alpha g(x)$$
+
+Since we've shown that $q(x) \leq \alpha g(x)$, where $\alpha = B(\theta,1) + \sqrt{2} B(1, \beta) + B(2, \beta)$ we can now design a procedure to sample from $f$. To do that we need to take samples from the Beta distributions $B(\theta,1)$, $B(1, \beta)$ and $B(2, \beta)$. Next, we will briefly explain the procedure using pseudo-code.
+
+\begin{algorithm}
+\begin{algorithmic}[1]
+\Procedure{My Procedure}{}
+\State Initialize \textit{count} and \textit{counts rejections}
+\State \textbf{while} \textit{count} < \textit{sample size} \textbf{do}
+\State Sample vector $x$ of Beta Distributions
+\State Sample \textit{observation} from U$(0, 1)$
+\State Comute $q(x)$ and $ \alpha g(x)$
+\State Compute \textit{ratio} $ = \frac{q(x)}{\alpha g(x)}$
+\If{\textit{observation} $\leq$ \textit{ratio}}
+\State Accept sample $x$
+\Else
+\State Reject sample $x$
+\EndIf
+\State \textbf{end while}
+\State\Return Vector of sampled $f(x)$
+\EndProcedure
+\end{algorithmic}
+\caption{Sampling from $f$ using a mixture of Beta Distributions}
+\end{algorithm}
+
+Before we implement the pseudo-code, we would like to construct the function `sample.beta.mixture` that samples Beta distributions.
+
+```{r sample.beta.mixture, echo = TRUE, message = FALSE, warning = FALSE}
+sample.beta.mixture <- function(sample.size2, theta.given, beta.given)  {
+  alpha.0 <- beta(theta.given,1) / (beta(theta.given,1) + sqrt(2) * 
+             beta(1, beta.given) + beta(2,beta.given))
+  alpha.1 <- sqrt(2) * beta(1, beta.given) / (beta(theta.given,1) + sqrt(2) * 
+             beta(1, beta.given) + beta(2,beta.given))
+  indicator <- runif(sample.size2, 0, 1)
+  sample.beta.mixture <- numeric(sample.size2)
+  
+  for (i in 1:sample.size2) {
+    if (indicator[i] <= alpha.0) {
+      sample.beta.mixture[i] <- rbeta(1, shape1 = theta.given, shape2 = 1)
+    } 
+    else if (indicator[i] <= alpha.0 + alpha.1) { 
+      sample.beta.mixture[i] <- rbeta(1, shape1 = 1, shape2 = beta.given)
+    }
+    else {
+      sample.beta.mixture[i] <- rbeta(1, shape1 = 2, shape2 = beta.given)
+    }
+  }
+  return(sample.beta.mixture)
+}
+```
+
+Next, we implement the pseudo-code in the R function `sample.f.new`
+
+```{r sample.f.new, echo = TRUE, message = FALSE, warning = FALSE}
+sample.f.new <- function(sample.size2, theta.given, beta.given) {
+  count <- 0
+  count.rejections <- 0
+  sample.f.new <- numeric(0)
+  while(count < sample.size2) {
+    obs <- sample.beta.mixture(1, theta.given, beta.given)
+    unif <- runif(1,0,1)
+    q.obs <- (obs^(theta.given - 1)) / (1 + obs^2) + (sqrt(2 + obs^2)) * 
+             ((1 - obs)^(beta.given - 1))
+    alpha.g.obs <- obs^(theta.given - 1) + (sqrt(2)) * (1 - obs)^(beta.given - 
+                   1) + obs*((1 - obs)^(beta.given - 1))
+    ratio.obs <- q.obs/alpha.g.obs
+    if(unif <= ratio.obs) {
+      sample.f.new <- append(sample.f.new, obs)
+      count = count + 1
+    }
+    else {
+      count.rejections = count.rejections + 1
+    }
+  }
+  acceptance.rate = count/(count + count.rejections)
+  return(sample.f.new)
+}
+```
+
+We will now estimate the density of $f$ by drawing a sample of size $10,000$ with the parameters $\theta = 2$, and $\beta = 4$. After that we will plot the kernel density of $f$ from the sample against the true density.
+
+```{r plot.sample.f.new, echo = TRUE, fig.cap = "\\label{fig:plot.sample.f.new} Estimated density of $f$ using a Mixture of Beta distributions", fig.width = 8, fig.pos = 'htb'}
+q <- function(x) {
+       return((x/(1 + x^2)) + sqrt(2 + x^2) * ((1 - x)^3))
+     }
+
+plot(density(sample.f.new(10000, 2, 4)), col = "red")
+curve(q(x)/0.7058734, xlim = c(0,1), add = TRUE, col = "blue")
+legend("topright", legend = c("Kernel Density", "True Density"), 
+       col = c("red","blue"), lty = c(1,1))
+```
+
+As we can see from Figure (\ref{fig:plot.sample.f.new}) the estimated density of $f(x)$ is fairly good throughout the interval $(0, 1)$. However, when $x$ gets close to $0$ or $1$, the estimated density drifts away from the actual density of $f$.
+
+## Two Components
+
+Breaking f(x) into pieces that can be simulated using Beta distributions
+
+Now, we are going to estimate the denisty of $f$ from Equation (\ref{eq:beta_f}) by splitting the function into two components. Since $f$ is proportional to  
+$$
+f(x) \propto \Big( \frac{x^{\theta - 1}}{1 + x^{2}} \Big) + \Big( \sqrt{2 + x^{2}} (1 - x)^{\beta - 1} \Big)
+$$
+We will break $f$ up into the functions $q_{1}$ and $q_{2}$ such that
+$$
+f(x) \propto q_{1}(x) + q_{2}(x) \quad\text{where}\quad q_{1}(x) = \frac{x^{\theta - 1}}{1 + x^{2}} \quad\text{and}\quad q_{2}(x) = \sqrt{2 + x^{2}} (1 - x)^{\beta - 1}
+$$
+
+Since $1 + x^{2} \geq 1$ we can easily show that $q_{1}$ is less than a Beta distributions with shape parameters $\theta$ and $1$.
+
+$$
+q_{1}(x) = \frac{x^{\theta - 1}}{1 + x^{2}} \leq B(\theta, 1) \cdot \frac{x^{\theta - 1}}{B(\theta, 1)} = \alpha_{1} \cdot g_{1}(x)
+$$
+Where
+$$
+\alpha_{1} = B(\theta,1) \quad\text{and}\quad g_{1}(x) = \frac{x^{\theta - 1}}{B (\theta,1)}
+$$
+
+Since $\sqrt{2 + x^{2}} \leq \sqrt{3}$ when $x \in (0, 1)$ we have
+$$
+q_{2}(x) = \sqrt{2 + x^{2}} (1 - x)^{\beta - 1}\leq  \sqrt{3} (1 - x)^{\beta - 1} = \sqrt{3} B(1, \beta) \cdot \frac{(1 - x)^{\beta - 1}}{B(1, \beta)} = \alpha_{2} \cdot g_{2}(x)
+$$
+Where
+$$
+\alpha_{2} = \sqrt{3} B(1, \beta) \quad\text{and}\quad g_{2}(x) = \frac{(1 - x)^{\beta - 1}}{B(1, \beta)}
+$$
+
+Since we've shown that $q_{1}(x) \leq \alpha_{1} g_{1}(x)$ and $q_{2}(x) \leq \alpha_{2} g_{2}(x)$, we can now design a procedure to sample from $f$. To do that we need to take samples from the Beta distributions $B(\theta,1)$, $B(1, \beta)$. Next, we will briefly explain the procedure using pseudo-code.
+
+\begin{algorithm}
+\begin{algorithmic}[1]
+\Procedure{My Procedure}{}
+\State Initialize \textit{count} and \textit{counts rejections}
+\State \textbf{while} \textit{count} < \textit{sample size} \textbf{do}
+
+\State Sample \textit{trial} from Bernoulli Distribution
+\If{\textit{trial} = success}
+\State Sample $x$ from Beta$(\theta, 1)$
+\State Compute ratio $= \frac{q_{1}(x)}{\alpha_{1} g_{1}(x)}$ 
+\Else
+\State Sample $x$ from Beta$(1, \beta)$
+\State compute ratio $= \frac{q_{2}(x)}{\alpha_{2} g_{2}(x)}$
+\EndIf
+\State Sample \textit{observation} from U$(0, 1)$
+\If{\textit{observation} $\leq$ \textit{ratio}}
+\State Accept sample $x$
+\Else
+\State Reject sample $x$
+\EndIf
+\State \textbf{end while}
+\State\Return Vector of sampled $f(x)$
+\EndProcedure
+\end{algorithmic}
+\caption{Sampling from $f$ using two components}
+\end{algorithm}
+
+\newpage
+
+We will now implement the pseudo-code in R by constructing the function `sample.f.2`.
+
+```{r sample.f.2, echo = TRUE, message = FALSE, warning = FALSE}
+sample.f.2 <- function(sample.size2, theta.given, beta.given){
+  alpha.1 <- beta(theta.given,1)
+  alpha.2 <- sqrt(3)*beta(1, beta.given)
+  prob <- alpha.1/(alpha.1 + alpha.2)
+  count <- 0 
+  count.rejections <- 0
+  sample.f.2 <- numeric(0)
+  
+  while(count < sample.size2) {
+    trial <- rbinom(1, 1, prob)
+    if (trial == 1) {
+      x <- rbeta(1, theta.given, 1)
+      q.1.x <- (x^(theta.given - 1))/(1 + x^2)
+      alpha.g.1.x <-  (x^(theta.given - 1))
+      ratio.x <-  q.1.x/alpha.g.1.x
+    }
+    else {
+      x <- rbeta(1,1,beta.given)
+      q.2.x <- (sqrt(2 + x^2))*((1-x)^(beta.given - 1))
+      alpha.g.2.x <- sqrt(2)*((1-x)^(beta.given - 1)) + x*(1-x)^(beta.given - 1)
+      ratio.x <- q.2.x/alpha.g.2.x
+    }
+    u <- runif(1, 0, 1)
+    if(u <= ratio.x) {
+      sample.f.2 <- append(sample.f.2, x)
+      count <- count  + 1
+    }
+    else {
+      count.rejections <- count.rejections + 1
+    }
+  }
+  acceptance.rate <- count/(count + count.rejections)
+  return(sample.f.2)
+}
+```
+
+We will now estimate the density of $f$ by drawing a sample of size $10,000$ with the parameters $\theta = 2$, and $\beta = 4$. After that we will plot the kernel density of $f$ from the sample against the true density.
+
+```{r plot.sample.f.new.2, echo = TRUE, fig.cap = "\\label{fig:plot.sample.f.new.2} Estimated density of $f$ using two component functions", fig.width = 8, fig.pos = 'htb'}
+
+q <- function(x) {
+        return((x/(1 + x^2)) + sqrt(2 + x^2)*((1 - x)^3))
+     }
+
+plot(density(sample.f.2(10000, 2, 4)), col = "red")
+curve(q(x)/0.7058734, xlim = c(0,1), add = TRUE, col = "blue")
+legend("topright", legend = c("Kernel Density", "True Density"), 
+       col = c("red","blue"), lty = c(1,1))
+```
+
+As we can see from Figure (\ref{fig:plot.sample.f.new.2}), the estimated density of $f(x)$ is fairly good throughout the interval $(0, 1)$. The graph is similar to Figure (\ref{fig:plot.sample.f.new}) since the estimated density drifts away from the actual density of $f$ when $x$ gets close to $0$ or $1$.
+
+
